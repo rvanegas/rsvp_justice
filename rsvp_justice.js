@@ -1,8 +1,15 @@
 const request = require('superagent');
+const fs = require('fs');
 const _ = require('lodash');
 
+const demeritsFile = 'demerits.json';
 const endpoint = 'https://api.meetup.com';
 const key = '365716195410774d58f4f04c1c382a';
+
+var demerits = {
+  lastAdjudication: undefined,
+  members: {},
+};
 
 function firstEvent(events) {
   const mainEvents = events.filter(event => {
@@ -42,8 +49,33 @@ function attendance(event_id, next) {
   });
 }
 
-prevEventId(e => {
-  console.log(e);
-  attendance(e, b => console.log(b))
-});
+function loadDemerits() {
+  try {
+    demerits = JSON.parse(fs.readFileSync(demeritsFile));
+  } catch (e) {}
+}
 
+function saveDemerits() {
+  fs.writeFileSync(demeritsFile, JSON.stringify(demerits));
+}
+
+function incrementPoints(next) {
+  prevEventId(event_id => {
+    attendance(event_id, noshows => {
+      if (demerits.lastAdjudication != event_id) {
+        demerits.lastAdjudication = event_id;
+        noshows.forEach(noshow => {
+          const {id, name} = noshow.member;
+          const member = demerits.members[id];
+          const points = (member && member.points + 1) || 1;
+          demerits.members[id] = {name, points};
+        });
+        next();
+      }
+    });
+  });
+}
+
+loadDemerits();
+incrementPoints(saveDemerits);
+nextEventId(event_id => rsvps(event_id));
