@@ -9,7 +9,7 @@ function firstEvent(events) {
     const date = new Date(event.time);
     return date.getHours() == 13;
   });
-  return mainEvents[0];
+  return mainEvents[0].id;
 }
 
 function nextEventId(next) {
@@ -34,6 +34,16 @@ function rsvps(event_id, next) {
   });
 }
 
-// nextEventId(e => rsvps(e));
+function attendance(event_id, next) {
+  request.get(endpoint + '/philosophy-184/events/' + event_id + '/attendance')
+  .query({key, filter: 'noshow'})
+  .end((err, res) => {
+    next(res.body);
+  });
+}
 
-prevEventId(e => console.log(e));
+prevEventId(e => {
+  console.log(e);
+  attendance(e, b => console.log(b))
+});
+
