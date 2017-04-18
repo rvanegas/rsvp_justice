@@ -3,8 +3,9 @@ const async = require('async');
 const _ = require('lodash');
 const fs = require('fs');
 
-const urlname = 'philosophy-184';
-const key = '365716195410774d58f4f04c1c382a';
+require('dotenv').config();
+const urlname = process.env.MEETUP_URLNAME;
+const key = process.env.MEETUP_KEY;
 const endpoint = 'https://api.meetup.com';
 const demeritsFile = 'demerits.json';
 
