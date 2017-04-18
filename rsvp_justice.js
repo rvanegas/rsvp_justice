@@ -39,7 +39,7 @@ function eventRsvps(event_id, next) {
     if (!res.body.results) {
       console.log('res.body.results = null');
       console.log('err', err);
-      console.log('res.body', res.body);
+      console.log('res', res);
       process.exit(1);
     }
     next(res.body.results.map(r => _.pick(r, ['member', 'response', 'guests', 'rsvp_id'])));
@@ -102,20 +102,32 @@ function setRsvpResponse(event_id, member_id, rsvp, next) {
   .end(next);
 }
 
-loadDemerits();
-incrementPoints(saveDemerits);
-nextEventId(event_id => {
-  async.forever(next => {
-    eventRsvps(event_id, rsvps => {
-      injustice(rsvps, (err, highestYes, lowestWaitlist) => {
-        if (err) {
-          next(true);
-        } else {
-          setRsvpResponse(event_id, highestYes.member.member_id, 'waitlist', () => {
-            setRsvpResponse(event_id, lowestWaitlist.member.member_id, 'yes', next);
-          });
-        }
-      });
+var count = 10;
+function swapPairMock(event_id, highestYes, lowestWaitlist, next) {
+  count -= 1;
+  console.log(count, highestYes, lowestWaitlist);
+  next(count > 0 ? null : true);
+}
+
+function swapPair(event_id, highestYes, lowestWaitlist, next) {
+  setRsvpResponse(event_id, highestYes.member.member_id, 'waitlist', () => {
+    setRsvpResponse(event_id, lowestWaitlist.member.member_id, 'yes', () => {
+      demerits.members[highestYes.member.member_id].points -= 1;
+      next();
     });
+  });
+}
+
+loadDemerits();
+incrementPoints(() => {
+  nextEventId(event_id => {
+    const adjust = next => {
+      eventRsvps(event_id, rsvps => {
+        injustice(rsvps, (err, highestYes, lowestWaitlist) => {
+          err ? next(true) : swapPairMock(event_id, highestYes, lowestWaitlist, next);
+        });
+      });
+    };
+    async.forever(adjust, saveDemerits);
   });
 });
