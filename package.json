@@ -9,6 +9,7 @@
   "author": "rvanegas@gmail.com",
   "license": "ISC",
   "dependencies": {
+    "async": "^2.3.0",
     "lodash": "^4.17.4",
     "superagent": "^3.5.2"
   }

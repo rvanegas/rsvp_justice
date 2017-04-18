@@ -1,10 +1,11 @@
 const request = require('superagent');
-const fs = require('fs');
+const async = require('async');
 const _ = require('lodash');
+const fs = require('fs');
 
-const demeritsFile = 'demerits.json';
-const endpoint = 'https://api.meetup.com';
 const key = '365716195410774d58f4f04c1c382a';
+const endpoint = 'https://api.meetup.com';
+const demeritsFile = 'demerits.json';
 
 var demerits = {
   lastAdjudication: undefined,
@@ -89,12 +90,32 @@ function injustice(rsvps, next) {
   const highestYes = _.maxBy(_.filter(rsvps, {response: 'yes'}), 'points');
   const lowestWaitlist = _.minBy(_.filter(rsvps, {response: 'waitlist'}), 'points');
   if (highestYes.points > lowestWaitlist.points) {
-    next({highestYes, lowestWaitlist});
+    next(null, highestYes, lowestWaitlist);
+  } else {
+    next(true);
   }
+}
+
+function setRsvpResponse(event_id, member_id, rsvp, next) {
+  request.post(endpoint + '/2/rsvps')
+  .query({event_id, member_id, rsvp})
+  .end(next);
 }
 
 loadDemerits();
 incrementPoints(saveDemerits);
-nextEventId(event_id => eventRsvps(event_id, rsvps => injustice(rsvps, pair => {
-  console.log(pair);
-})));
+nextEventId(event_id => {
+  async.forever(next => {
+    eventRsvps(event_id, rsvps => {
+      injustice(rsvps, (err, highestYes, lowestWaitlist) => {
+        if (err) {
+          next(true);
+        } else {
+          setRsvpResponse(event_id, highestYes.member.member_id, 'waitlist', () => {
+            setRsvpResponse(event_id, lowestWaitlist.member.member_id, 'yes', next);
+          });
+        }
+      });
+    });
+  });
+});
