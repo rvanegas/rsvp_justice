@@ -34,18 +34,20 @@ function prevEventId(next) {
 }
 
 function eventRsvps(event_id, next) {
-  request.get(endpoint + '/2/rsvps')
-  .query({event_id, key})
-  .end((err, res) => {
-    if (!res.body.results) {
-      console.log('res.body.results = null');
-      console.log('err', err);
-      console.log('res', res);
-      process.exit(1);
-    }
-    const rsvps = res.body.results.map(r => _.pick(r, ['member', 'response', 'guests', 'rsvp_id']));
-    next(null, rsvps);
-  });
+  function trial(trialNext) {
+    request.get(endpoint + '/2/rsvps')
+    .query({event_id, key})
+    .end((err, res) => {
+      if (!res.body.results) {
+        console.log('retrying...');
+        trialNext(true);
+      } else {
+        const rsvps = res.body.results.map(r => _.pick(r, ['member', 'response', 'guests', 'rsvp_id']));
+        trialNext(null, rsvps);
+      }
+    });
+  }
+  async.retry(trial, next);
 }
 
 function attendance(event_id, next) {
