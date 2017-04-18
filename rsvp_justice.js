@@ -23,13 +23,13 @@ function firstEvent(events) {
 function nextEventId(next) {
   request.get(endpoint + '/philosophy-184/events')
   .query({status: 'upcoming'})
-  .end((err, res) => next(firstEvent(res.body)));
+  .end((err, res) => next(null, firstEvent(res.body)));
 }
 
 function prevEventId(next) {
   request.get(endpoint + '/philosophy-184/events')
   .query({status: 'past', desc: true})
-  .end((err, res) => next(firstEvent(res.body)));
+  .end((err, res) => next(null, firstEvent(res.body)));
 }
 
 function eventRsvps(event_id, next) {
@@ -42,16 +42,15 @@ function eventRsvps(event_id, next) {
       console.log('res', res);
       process.exit(1);
     }
-    next(res.body.results.map(r => _.pick(r, ['member', 'response', 'guests', 'rsvp_id'])));
+    const rsvps = res.body.results.map(r => _.pick(r, ['member', 'response', 'guests', 'rsvp_id']));
+    next(null, rsvps);
   });
 }
 
 function attendance(event_id, next) {
   request.get(endpoint + '/philosophy-184/events/' + event_id + '/attendance')
   .query({key, filter: 'noshow'})
-  .end((err, res) => {
-    next(res.body);
-  });
+  .end((err, res) => next(null, res.body));
 }
 
 function loadDemerits() {
@@ -65,8 +64,8 @@ function saveDemerits() {
 }
 
 function incrementPoints(next) {
-  prevEventId(event_id => {
-    attendance(event_id, noshows => {
+  prevEventId((err, event_id) => {
+    attendance(event_id, (err, noshows) => {
       if (demerits.lastAdjudication != event_id) {
         demerits.lastAdjudication = event_id;
         noshows.forEach(noshow => {
@@ -89,11 +88,9 @@ function injustice(rsvps, next) {
   });
   const highestYes = _.maxBy(_.filter(rsvps, {response: 'yes'}), 'points');
   const lowestWaitlist = _.minBy(_.filter(rsvps, {response: 'waitlist'}), 'points');
-  if (highestYes.points > lowestWaitlist.points) {
-    next(null, highestYes, lowestWaitlist);
-  } else {
+  highestYes.points > lowestWaitlist.points ?
+    next(null, highestYes, lowestWaitlist) :
     next(true);
-  }
 }
 
 function setRsvpResponse(event_id, member_id, rsvp, next) {
@@ -120,9 +117,9 @@ function swapPair(event_id, highestYes, lowestWaitlist, next) {
 
 loadDemerits();
 incrementPoints(() => {
-  nextEventId(event_id => {
+  nextEventId((err, event_id) => {
     const adjust = next => {
-      eventRsvps(event_id, rsvps => {
+      eventRsvps(event_id, (err, rsvps) => {
         injustice(rsvps, (err, highestYes, lowestWaitlist) => {
           err ? next(true) : swapPairMock(event_id, highestYes, lowestWaitlist, next);
         });
