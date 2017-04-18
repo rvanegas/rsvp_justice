@@ -31,13 +31,17 @@ function prevEventId(next) {
   .end((err, res) => next(firstEvent(res.body)));
 }
 
-function rsvps(event_id, next) {
+function eventRsvps(event_id, next) {
   request.get(endpoint + '/2/rsvps')
   .query({event_id, key})
   .end((err, res) => {
-    console.log(res.body.results.map(r => {
-      return _.pick(r, ['member', 'response', 'guests', 'rsvp_id']);
-    }));
+    if (!res.body.results) {
+      console.log('res.body.results = null');
+      console.log('err', err);
+      console.log('res.body', res.body);
+      process.exit(1);
+    }
+    next(res.body.results.map(r => _.pick(r, ['member', 'response', 'guests', 'rsvp_id'])));
   });
 }
 
@@ -76,6 +80,21 @@ function incrementPoints(next) {
   });
 }
 
+function injustice(rsvps, next) {
+  rsvps.map(rsvp => {
+    const demeritMember = demerits.members[rsvp.member.member_id];
+    const points = demeritMember ? demeritMember.points : 0;
+    _.assign(rsvp, {points});
+  });
+  const highestYes = _.maxBy(_.filter(rsvps, {response: 'yes'}), 'points');
+  const lowestWaitlist = _.minBy(_.filter(rsvps, {response: 'waitlist'}), 'points');
+  if (highestYes.points > lowestWaitlist.points) {
+    next({highestYes, lowestWaitlist});
+  }
+}
+
 loadDemerits();
 incrementPoints(saveDemerits);
-nextEventId(event_id => rsvps(event_id));
+nextEventId(event_id => eventRsvps(event_id, rsvps => injustice(rsvps, pair => {
+  console.log(pair);
+})));
