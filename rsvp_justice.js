@@ -3,6 +3,7 @@ const async = require('async');
 const _ = require('lodash');
 const fs = require('fs');
 
+const urlname = 'philosophy-184';
 const key = '365716195410774d58f4f04c1c382a';
 const endpoint = 'https://api.meetup.com';
 const demeritsFile = 'demerits.json';
@@ -21,13 +22,13 @@ function firstEvent(events) {
 }
 
 function nextEventId(next) {
-  request.get(endpoint + '/philosophy-184/events')
+  request.get(endpoint + '/' + urlname + '/events')
   .query({status: 'upcoming'})
   .end((err, res) => next(null, firstEvent(res.body)));
 }
 
 function prevEventId(next) {
-  request.get(endpoint + '/philosophy-184/events')
+  request.get(endpoint + '/' + urlname + '/events')
   .query({status: 'past', desc: true})
   .end((err, res) => next(null, firstEvent(res.body)));
 }
@@ -48,7 +49,7 @@ function eventRsvps(event_id, next) {
 }
 
 function attendance(event_id, next) {
-  request.get(endpoint + '/philosophy-184/events/' + event_id + '/attendance')
+  request.get(endpoint + '/' + urlname + '/events/' + event_id + '/attendance')
   .query({key, filter: 'noshow'})
   .end((err, res) => next(null, res.body));
 }
