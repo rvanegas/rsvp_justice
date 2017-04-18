@@ -24,13 +24,13 @@ function firstEvent(events) {
 
 function nextEventId(next) {
   request.get(endpoint + '/' + urlname + '/events')
-  .query({status: 'upcoming'})
+  .query({status: 'upcoming', page: 10})
   .end((err, res) => next(null, firstEvent(res.body)));
 }
 
 function prevEventId(next) {
   request.get(endpoint + '/' + urlname + '/events')
-  .query({status: 'past', desc: true})
+  .query({status: 'past', desc: true, page: 10})
   .end((err, res) => next(null, firstEvent(res.body)));
 }
 
@@ -84,6 +84,11 @@ function incrementPoints(next) {
   });
 }
 
+function decrementPoints(member_id, next) {
+  demerits.members[member_id].points -= 1;
+  next();
+}
+
 function injustice(rsvps, next) {
   rsvps.map(rsvp => {
     const demeritMember = demerits.members[rsvp.member.member_id];
@@ -113,8 +118,7 @@ function swapPairMock(event_id, highestYes, lowestWaitlist, next) {
 function swapPair(event_id, highestYes, lowestWaitlist, next) {
   setRsvpResponse(event_id, highestYes.member.member_id, 'waitlist', () => {
     setRsvpResponse(event_id, lowestWaitlist.member.member_id, 'yes', () => {
-      demerits.members[highestYes.member.member_id].points -= 1;
-      next();
+      decrementPoints(highestYes.member.member_id, next);
     });
   });
 }
@@ -122,13 +126,13 @@ function swapPair(event_id, highestYes, lowestWaitlist, next) {
 loadDemerits();
 incrementPoints(() => {
   nextEventId((err, event_id) => {
-    const adjust = next => {
+    function adjust(next) {
       eventRsvps(event_id, (err, rsvps) => {
         injustice(rsvps, (err, highestYes, lowestWaitlist) => {
           err ? next(true) : swapPairMock(event_id, highestYes, lowestWaitlist, next);
         });
       });
-    };
+    }
     async.forever(adjust, saveDemerits);
   });
 });
