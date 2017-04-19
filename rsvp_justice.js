@@ -64,7 +64,7 @@ function loadDemerits() {
 }
 
 function saveDemerits() {
-  fs.writeFileSync(demeritsFile, JSON.stringify(demerits));
+  fs.writeFileSync(demeritsFile, JSON.stringify(demerits, null, 2));
 }
 
 function incrementPoints(next) {

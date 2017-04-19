@@ -1,4 +1,3 @@
-dist
+demerits.json
 node_modules
-.serverless
 .env
