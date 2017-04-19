@@ -90,9 +90,8 @@ function incrementPoints(next) {
   });
 }
 
-function decrementPoints(member_id, next) {
-  demerits.members[member_id].points -= 1;
-  next();
+function decrementPoints(member) {
+  demerits.members[member.member_id].points -= 1;
 }
 
 function injustice(rsvps, next) {
@@ -102,30 +101,47 @@ function injustice(rsvps, next) {
     _.assign(rsvp, {points});
   });
   const order = rsvp => [rsvp.points, rsvp.mtime];
-  const highestYes = _.maxBy(_.filter(rsvps, {response: 'yes'}), order);
   const lowestWaitlist = _.minBy(_.filter(rsvps, {response: 'waitlist'}), order);
-  highestYes.points > lowestWaitlist.points ?
-  next(null, highestYes, lowestWaitlist) :
-  next(true);
+  const swapFilter = rsvp => rsvp.response == 'yes' && rsvp.points > lowestWaitlist.points;
+  const swappables = _.reverse(_.sortBy(_.filter(rsvps, swapFilter), order));
+  const waitlistCount = lowestWaitlist.guests + 1;
+
+  // functionalize
+  var yesCount = 0;
+  var just = true;
+  for (var swapIdx in swappables) {
+    yesCount += swappables[swapIdx].guests + 1;
+    if (yesCount >= waitlistCount) {
+      just = false;
+      var unjustYess = swappables.slice(0, swapIdx + 1);
+      break;
+    }
+  }
+  just ? next(true) : next(null, lowestWaitlist, unjustYess);
 }
 
-function setRsvpResponse(event_id, member_id, rsvp, next) {
+function mockSetRsvpResponse(event_id, member, rsvp, next) {
+  console.log('setrsvp', event_id, member.member_id, member.name, rsvp);
+  next();
+}
+
+function setRsvpResponse(event_id, member, rsvp, next) {
+  const member_id = member.member_id;
   request.post(endpoint + '/2/rsvps')
-  .query({event_id, member_id, rsvp})
   .end(next);
 }
 
-function swapPairMock(event_id, highestYes, lowestWaitlist, next) {
-  console.log(highestYes);
-  console.log(lowestWaitlist);
-  next(true);
-}
-
-function swapPair(event_id, highestYes, lowestWaitlist, next) {
-  setRsvpResponse(event_id, highestYes.member.member_id, 'waitlist', () => {
-    setRsvpResponse(event_id, lowestWaitlist.member.member_id, 'yes', () => {
-      decrementPoints(highestYes.member.member_id, next);
-    });
+function swapRsvps(event_id, lowestWaitlist, unjustYess, next) {
+  function setResponse(move, nextSeries) {
+    mockSetRsvpResponse(event_id, move.rsvp.member, move.response, nextSeries);
+  }
+  const moves = _.concat(
+    {rsvp: lowestWaitlist, response: 'yes'},
+    unjustYess.map(rsvp => ({rsvp, response: 'waitlist'}))
+  );
+  async.eachSeries(moves, setResponse, (err) => {
+    if (!err) unjustYess.map(rsvp => decrementPoints(rsvp.member));
+    next(err);
   });
 }
 
@@ -137,9 +153,9 @@ function adjudicate(next) {
       function adjust(adjustNext) {
         eventRsvps(event_id, (err, rsvps) => {
           err ? next(err) :
-          injustice(rsvps, (done, highestYes, lowestWaitlist) => {
+          injustice(rsvps, (done, lowestWaitlist, unjustYess) => {
             done ? adjustNext(true) :
-            swapPairMock(event_id, highestYes, lowestWaitlist, adjustNext);
+            swapRsvps(event_id, lowestWaitlist, unjustYess, adjustNext);
           });
         });
       }
