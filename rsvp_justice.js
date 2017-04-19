@@ -43,7 +43,8 @@ function eventRsvps(event_id, next) {
         console.log('retrying...');
         trialNext(true);
       } else {
-        const rsvps = res.body.results.map(r => _.pick(r, ['member', 'response', 'guests', 'rsvp_id']));
+        const fields = ['mtime', 'member', 'response', 'guests'];
+        const rsvps = res.body.results.map(r => _.pick(r, fields));
         trialNext(null, rsvps);
       }
     });
@@ -95,8 +96,9 @@ function injustice(rsvps, next) {
     const points = demeritMember ? demeritMember.points : 0;
     _.assign(rsvp, {points});
   });
-  const highestYes = _.maxBy(_.filter(rsvps, {response: 'yes'}), 'points');
-  const lowestWaitlist = _.minBy(_.filter(rsvps, {response: 'waitlist'}), 'points');
+  const order = rsvp => [rsvp.points, rsvp.mtime];
+  const highestYes = _.maxBy(_.filter(rsvps, {response: 'yes'}), order);
+  const lowestWaitlist = _.minBy(_.filter(rsvps, {response: 'waitlist'}), order);
   highestYes.points > lowestWaitlist.points ?
     next(null, highestYes, lowestWaitlist) :
     next(true);
@@ -108,11 +110,10 @@ function setRsvpResponse(event_id, member_id, rsvp, next) {
   .end(next);
 }
 
-var count = 10;
 function swapPairMock(event_id, highestYes, lowestWaitlist, next) {
-  count -= 1;
-  console.log(count, highestYes, lowestWaitlist);
-  next(count > 0 ? null : true);
+  console.log(highestYes);
+  console.log(lowestWaitlist);
+  next(true);
 }
 
 function swapPair(event_id, highestYes, lowestWaitlist, next) {
