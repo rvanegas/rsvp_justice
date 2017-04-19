@@ -139,7 +139,7 @@ function swapRsvps(event_id, lowestWaitlist, unjustYess, next) {
     {rsvp: lowestWaitlist, response: 'yes'},
     unjustYess.map(rsvp => ({rsvp, response: 'waitlist'}))
   );
-  async.eachSeries(moves, setResponse, (err) => {
+  async.eachSeries(moves, setResponse, err => {
     if (!err) unjustYess.map(rsvp => decrementPoints(rsvp.member));
     next(err);
   });
@@ -147,7 +147,7 @@ function swapRsvps(event_id, lowestWaitlist, unjustYess, next) {
 
 function adjudicate(next) {
   loadDemerits();
-  incrementPoints((err) => {
+  incrementPoints(err => {
     err ? next(err) :
     nextEventId((err, event_id) => {
       function adjust(adjustNext) {
@@ -165,7 +165,7 @@ function adjudicate(next) {
   });
 }
 
-adjudicate((err) => {
+adjudicate(err => {
   if (err) {
     console.log('error:', err);
     process.exit(1);
