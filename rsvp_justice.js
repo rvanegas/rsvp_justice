@@ -25,13 +25,13 @@ function firstEvent(events) {
 function nextEventId(next) {
   request.get(endpoint + '/' + urlname + '/events')
   .query({status: 'upcoming', page: 10})
-  .end((err, res) => next(null, firstEvent(res.body)));
+  .end((err, res) => next(err, res && firstEvent(res.body)));
 }
 
 function prevEventId(next) {
   request.get(endpoint + '/' + urlname + '/events')
   .query({status: 'past', desc: true, page: 10})
-  .end((err, res) => next(null, firstEvent(res.body)));
+  .end((err, res) => next(err, res && firstEvent(res.body)));
 }
 
 function eventRsvps(event_id, next) {
@@ -39,9 +39,9 @@ function eventRsvps(event_id, next) {
     request.get(endpoint + '/2/rsvps')
     .query({event_id, key})
     .end((err, res) => {
-      if (!res.body.results) {
+      if (err || !res.ok || !res.body.results) {
         console.log('retrying...');
-        trialNext(true);
+        trialNext('too many trials');
       } else {
         const fields = ['mtime', 'member', 'response', 'guests'];
         const rsvps = res.body.results.map(r => _.pick(r, fields));
@@ -55,7 +55,7 @@ function eventRsvps(event_id, next) {
 function attendance(event_id, next) {
   request.get(endpoint + '/' + urlname + '/events/' + event_id + '/attendance')
   .query({key, filter: 'noshow'})
-  .end((err, res) => next(null, res.body));
+  .end((err, res) => next(err, res && res.body));
 }
 
 function loadDemerits() {
@@ -70,8 +70,13 @@ function saveDemerits() {
 
 function incrementPoints(next) {
   prevEventId((err, event_id) => {
+    err ? next(err) :
     attendance(event_id, (err, noshows) => {
-      if (demerits.lastAdjudication != event_id) {
+      if (err) {
+        next(err);
+      } else if (demerits.lastAdjudication == event_id) {
+        next('already done');
+      } else {
         demerits.lastAdjudication = event_id;
         noshows.forEach(noshow => {
           const {id, name} = noshow.member;
@@ -100,8 +105,8 @@ function injustice(rsvps, next) {
   const highestYes = _.maxBy(_.filter(rsvps, {response: 'yes'}), order);
   const lowestWaitlist = _.minBy(_.filter(rsvps, {response: 'waitlist'}), order);
   highestYes.points > lowestWaitlist.points ?
-    next(null, highestYes, lowestWaitlist) :
-    next(true);
+  next(null, highestYes, lowestWaitlist) :
+  next(true);
 }
 
 function setRsvpResponse(event_id, member_id, rsvp, next) {
@@ -124,16 +129,29 @@ function swapPair(event_id, highestYes, lowestWaitlist, next) {
   });
 }
 
-loadDemerits();
-incrementPoints(() => {
-  nextEventId((err, event_id) => {
-    function adjust(next) {
-      eventRsvps(event_id, (err, rsvps) => {
-        injustice(rsvps, (err, highestYes, lowestWaitlist) => {
-          err ? next(true) : swapPairMock(event_id, highestYes, lowestWaitlist, next);
+function adjudicate(next) {
+  loadDemerits();
+  incrementPoints((err) => {
+    err ? next(err) :
+    nextEventId((err, event_id) => {
+      function adjust(adjustNext) {
+        eventRsvps(event_id, (err, rsvps) => {
+          err ? next(err) :
+          injustice(rsvps, (done, highestYes, lowestWaitlist) => {
+            done ? adjustNext(true) :
+            swapPairMock(event_id, highestYes, lowestWaitlist, adjustNext);
+          });
         });
-      });
-    }
-    async.forever(adjust, saveDemerits);
+      }
+      err ? next(err) :
+      async.forever(adjust, saveDemerits);
+    });
   });
+}
+
+adjudicate((err) => {
+  if (err) {
+    console.log('error:', err);
+    process.exit(1);
+  }
 });
