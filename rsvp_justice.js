@@ -9,12 +9,24 @@ const key = process.env.MEETUP_KEY;
 const endpoint = 'https://api.meetup.com';
 const demeritsFile = 'demerits.json';
 
-var demerits = {
-  lastAdjudication: undefined,
-  members: {},
-};
+var demerits;
 
-function firstEvent(events) {
+function loadDemerits() {
+  try {
+    demerits = JSON.parse(fs.readFileSync(demeritsFile));
+  } catch (e) {
+    demerits = {
+      lastAdjudication: undefined,
+      members: {},
+    };
+  }
+}
+
+function saveDemerits() {
+  fs.writeFileSync(demeritsFile, JSON.stringify(demerits, null, 2));
+}
+
+function firstEventId(events) {
   const mainEvents = events.filter(event => {
     const date = new Date(event.time);
     return date.getHours() == 13;
@@ -25,13 +37,13 @@ function firstEvent(events) {
 function nextEventId(next) {
   request.get(endpoint + '/' + urlname + '/events')
   .query({status: 'upcoming', page: 10})
-  .end((err, res) => next(err, res && firstEvent(res.body)));
+  .end((err, res) => next(err, res && firstEventId(res.body)));
 }
 
 function prevEventId(next) {
   request.get(endpoint + '/' + urlname + '/events')
   .query({status: 'past', desc: true, page: 10})
-  .end((err, res) => next(err, res && firstEvent(res.body)));
+  .end((err, res) => next(err, res && firstEventId(res.body)));
 }
 
 function eventRsvps(event_id, next) {
@@ -44,7 +56,7 @@ function eventRsvps(event_id, next) {
         trialNext('too many trials');
       } else {
         const fields = ['mtime', 'member', 'response', 'guests'];
-        const rsvps = res.body.results.map(r => _.pick(r, fields));
+        const rsvps = res.body.results.map(rsvp => _.pick(rsvp, fields));
         trialNext(null, rsvps);
       }
     });
@@ -56,16 +68,6 @@ function attendance(event_id, next) {
   request.get(endpoint + '/' + urlname + '/events/' + event_id + '/attendance')
   .query({key, filter: 'noshow'})
   .end((err, res) => next(err, res && res.body));
-}
-
-function loadDemerits() {
-  try {
-    demerits = JSON.parse(fs.readFileSync(demeritsFile));
-  } catch (e) {}
-}
-
-function saveDemerits() {
-  fs.writeFileSync(demeritsFile, JSON.stringify(demerits, null, 2));
 }
 
 function incrementPoints(next) {
@@ -120,20 +122,24 @@ function injustice(rsvps, next) {
   just ? next(true) : next(null, lowestWaitlist, unjustYess);
 }
 
-function mockSetRsvpResponse(event_id, member, rsvp, next) {
-  console.log('setrsvp', event_id, member.member_id, member.name, rsvp);
+function mockSetRsvpResponse(event_id, move, next) {
+  const {rsvp, response} = move;
+  console.log('setrsvp', event_id, rsvp.member.member_id, rsvp.member.name, response);
   next();
 }
 
-function setRsvpResponse(event_id, member, rsvp, next) {
-  const member_id = member.member_id;
+function setRsvpResponse(event_id, move, next) {
+  const {rsvp, response} = move;
+  const member_id = rsvp.member.member_id;
+  const guests = rsvp.guests;
   request.post(endpoint + '/2/rsvps')
+  .query({event_id, member_id, response, guests})
   .end(next);
 }
 
 function swapRsvps(event_id, lowestWaitlist, unjustYess, next) {
   function setResponse(move, nextSeries) {
-    mockSetRsvpResponse(event_id, move.rsvp.member, move.response, nextSeries);
+    mockSetRsvpResponse(event_id, move, nextSeries);
   }
   const moves = _.concat(
     {rsvp: lowestWaitlist, response: 'yes'},
