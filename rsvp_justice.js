@@ -152,29 +152,29 @@ function swapRsvps(event_id, lowestWaitlist, unjustYess, next) {
   });
 }
 
-function adjudicate(next) {
+function exit(err) {
+  console.log('error:', err);
+  process.exit(1);
+}
+
+function adjudicate() {
   loadDemerits();
   incrementPoints(err => {
-    err ? next(err) :
+    err ? exit(err) :
     nextEventId((err, event_id) => {
       function adjust(adjustNext) {
         eventRsvps(event_id, (err, rsvps) => {
-          err ? next(err) :
+          err ? exit(err) :
           injustice(rsvps, (done, lowestWaitlist, unjustYess) => {
             done ? adjustNext(true) :
             swapRsvps(event_id, lowestWaitlist, unjustYess, adjustNext);
           });
         });
       }
-      err ? next(err) :
+      err ? exit(err) :
       async.forever(adjust, saveDemerits);
     });
   });
 }
 
-adjudicate(err => {
-  if (err) {
-    console.log('error:', err);
-    process.exit(1);
-  }
-});
+adjudicate();
