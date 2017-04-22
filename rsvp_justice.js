@@ -132,14 +132,15 @@ function setRsvpResponse(event_id, move, next) {
   const {rsvp, response} = move;
   const member_id = rsvp.member.member_id;
   const guests = rsvp.guests;
-  request.post(endpoint + '/2/rsvps')
-  .query({event_id, member_id, response, guests})
+  console.log('setrsvp', event_id, rsvp.member.member_id, rsvp.member.name, response);
+  request.post(endpoint + '/2/rsvp')
+  .query({key, event_id, member_id, guests, rsvp: response})
   .end(next);
 }
 
 function swapRsvps(event_id, lowestWaitlist, unjustYess, next) {
   function setResponse(move, nextSeries) {
-    mockSetRsvpResponse(event_id, move, nextSeries);
+    setRsvpResponse(event_id, move, nextSeries);
   }
   const moves = _.concat(
     {rsvp: lowestWaitlist, response: 'yes'},
