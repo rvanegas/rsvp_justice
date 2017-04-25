@@ -92,14 +92,13 @@ function adjust([noshowRsvps, events]) {
     const event_id = events.shift().id;
     rsvpsByEventId(event_id, (err, eventRsvps) => {
       if (err) {
-        console.log('err', err);
         next(err);
       } else {
-        const noshowIds = _.map(noshowRsvps, 'member.id');
-        const eventIds = _.map(eventRsvps, 'member.member_id');
-        const bumpableIds = _.intersection(noshowIds, eventIds);
+        const noshowRsvpIds = _.map(noshowRsvps, 'member.id');
+        const eventRsvpIds = _.map(eventRsvps, 'member.member_id');
+        const bumpableIds = _.intersection(noshowRsvpIds, eventRsvpIds);
         async.eachSeries(bumpableIds, (id, nextBump) => {
-          _.remove(noshowRsvps, r => r.member.id = id);
+          _.remove(noshowRsvps, rsvp => rsvp.member.id = id);
           setRsvpResponse(event_id, id, 'no', () =>
             setRsvpResponse(event_id, id, 'waitlist', nextBump));
         });
