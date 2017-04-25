@@ -7,174 +7,118 @@ require('dotenv').config();
 const urlname = process.env.MEETUP_URLNAME;
 const key = process.env.MEETUP_KEY;
 const endpoint = 'https://api.meetup.com';
-const demeritsFile = 'demerits.json';
+const lastEventFile = 'last_event';
+var last_event_id;
 
-var demerits;
-
-function loadDemerits() {
-  try {
-    demerits = JSON.parse(fs.readFileSync(demeritsFile));
-  } catch (e) {
-    demerits = {
-      lastAdjudication: undefined,
-      members: {},
-    };
-  }
+function loadLastEvent() {
+  last_event_id = fs.readFileSync(lastEventFile, 'utf8').trim();
 }
 
-function saveDemerits() {
-  fs.writeFileSync(demeritsFile, JSON.stringify(demerits, null, 2));
+function saveLastEvent() {
+  fs.writeFileSync(lastEventFile, last_event_id + '\n');
+}
+
+function mainEvents(events) {
+  const mainEventFilter = event => (new Date(event.time)).getHours() == 13;
+  return events.filter(mainEventFilter);
 }
 
 function firstEventId(events) {
-  const mainEvents = events.filter(event => {
-    const date = new Date(event.time);
-    return date.getHours() == 13;
-  });
-  return mainEvents[0].id;
+  return mainEvents(events)[0].id;
 }
 
-function nextEventId(next) {
-  request.get(endpoint + '/' + urlname + '/events')
-  .query({status: 'upcoming', page: 10})
-  .end((err, res) => next(err, res && firstEventId(res.body)));
-}
-
-function prevEventId(next) {
-  request.get(endpoint + '/' + urlname + '/events')
+function prevEventId() {
+  return request.get(endpoint + '/' + urlname + '/events')
   .query({status: 'past', desc: true, page: 10})
-  .end((err, res) => next(err, res && firstEventId(res.body)));
+  .then(res => firstEventId(res.body));
 }
 
-function eventRsvps(event_id, next) {
+function nextEventIds() {
+  return request.get(endpoint + '/' + urlname + '/events')
+  .query({status: 'upcoming', page: 20})
+  .then(res => mainEvents(res.body));
+}
+
+function attendance(event_id) {
+  return request.get(endpoint + '/' + urlname + '/events/' + event_id + '/attendance')
+  .query({key, filter: 'noshow'})
+  .then(res => res.body);
+}
+
+function errorExit(err) {
+  console.log('error:', err);
+  process.exit(1);
+}
+
+function prevEventAttendance() {
+  return prevEventId()
+  .then(event_id => {
+    if (last_event_id == event_id) {
+      errorExit('already done.');
+    } else {
+      last_event_id = event_id;
+      return attendance(event_id);
+    }
+  });
+}
+
+function rsvpsByEventId(event_id, next) {
   function trial(trialNext) {
     request.get(endpoint + '/2/rsvps')
     .query({event_id, key})
     .end((err, res) => {
       if (err || !res.ok || !res.body.results) {
-        console.log('retrying...');
         trialNext('too many trials');
       } else {
-        const fields = ['mtime', 'member', 'response', 'guests'];
-        const rsvps = res.body.results.map(rsvp => _.pick(rsvp, fields));
-        trialNext(null, rsvps);
+        trialNext(null, res.body.results);
       }
     });
   }
   async.retry(trial, next);
 }
 
-function attendance(event_id, next) {
-  request.get(endpoint + '/' + urlname + '/events/' + event_id + '/attendance')
-  .query({key, filter: 'noshow'})
-  .end((err, res) => next(err, res && res.body));
+function setRsvpResponse(event_id, member_id, response, next) {
+  console.log('setrsvp', event_id, member_id, response);
+  request.post(endpoint + '/2/rsvp')
+  .query({key, event_id, member_id, rsvp: response})
+  .end(next);
 }
 
-function incrementPoints(next) {
-  prevEventId((err, event_id) => {
-    err ? next(err) :
-    attendance(event_id, (err, noshows) => {
+function adjust([noshowRsvps, events]) {
+  function notDone() {
+    return noshowRsvps.length != 0 && events.length != 0;
+  }
+  function bump(next) {
+    const event_id = events.shift().id;
+    rsvpsByEventId(event_id, (err, eventRsvps) => {
       if (err) {
+        console.log('err', err);
         next(err);
-      } else if (demerits.lastAdjudication == event_id) {
-        next('already done');
       } else {
-        demerits.lastAdjudication = event_id;
-        noshows.forEach(noshow => {
-          const {id, name} = noshow.member;
-          const member = demerits.members[id];
-          const points = (member && member.points + 1) || 1;
-          demerits.members[id] = {name, points};
+        const noshowIds = _.map(noshowRsvps, 'member.id');
+        const eventIds = _.map(eventRsvps, 'member.member_id');
+        const bumpableIds = _.intersection(noshowIds, eventIds);
+        async.eachSeries(bumpableIds, (id, nextBump) => {
+          _.remove(noshowRsvps, r => r.member.id = id);
+          setRsvpResponse(event_id, id, 'no', () =>
+            setRsvpResponse(event_id, id, 'waitlist', nextBump));
         });
         next();
       }
     });
-  });
-}
-
-function decrementPoints(member) {
-  demerits.members[member.member_id].points -= 1;
-}
-
-function injustice(rsvps, next) {
-  rsvps.map(rsvp => {
-    const demeritMember = demerits.members[rsvp.member.member_id];
-    const points = demeritMember ? demeritMember.points : 0;
-    _.assign(rsvp, {points});
-  });
-  const order = rsvp => [rsvp.points, rsvp.mtime];
-  const lowestWaitlist = _.minBy(_.filter(rsvps, {response: 'waitlist'}), order);
-  const swapFilter = rsvp => rsvp.response == 'yes' && rsvp.points > lowestWaitlist.points;
-  const swappables = _.reverse(_.sortBy(_.filter(rsvps, swapFilter), order));
-  const waitlistCount = lowestWaitlist.guests + 1;
-
-  // functionalize
-  var yesCount = 0;
-  var just = true;
-  for (var swapIdx in swappables) {
-    yesCount += swappables[swapIdx].guests + 1;
-    if (yesCount >= waitlistCount) {
-      just = false;
-      var unjustYess = swappables.slice(0, swapIdx + 1);
-      break;
-    }
   }
-  just ? next(true) : next(null, lowestWaitlist, unjustYess);
-}
 
-function mockSetRsvpResponse(event_id, move, next) {
-  const {rsvp, response} = move;
-  console.log('setrsvp', event_id, rsvp.member.member_id, rsvp.member.name, response);
-  next();
-}
-
-function setRsvpResponse(event_id, move, next) {
-  const {rsvp, response} = move;
-  const member_id = rsvp.member.member_id;
-  const guests = rsvp.guests;
-  console.log('setrsvp', event_id, rsvp.member.member_id, rsvp.member.name, response);
-  request.post(endpoint + '/2/rsvp')
-  .query({key, event_id, member_id, guests, rsvp: response})
-  .end(next);
-}
-
-function swapRsvps(event_id, lowestWaitlist, unjustYess, next) {
-  function setResponse(move, nextSeries) {
-    setRsvpResponse(event_id, move, nextSeries);
-  }
-  const moves = _.concat(
-    {rsvp: lowestWaitlist, response: 'yes'},
-    unjustYess.map(rsvp => ({rsvp, response: 'waitlist'}))
-  );
-  async.eachSeries(moves, setResponse, err => {
-    if (!err) unjustYess.map(rsvp => decrementPoints(rsvp.member));
-    next(err);
+  return new Promise((resolve, reject) => {
+    async.whilst(notDone, bump, (err, res) => err ? reject(err) : resolve(res));
   });
-}
-
-function exit(err) {
-  console.log('error:', err);
-  process.exit(1);
 }
 
 function adjudicate() {
-  loadDemerits();
-  incrementPoints(err => {
-    err ? exit(err) :
-    nextEventId((err, event_id) => {
-      function adjust(adjustNext) {
-        eventRsvps(event_id, (err, rsvps) => {
-          err ? exit(err) :
-          injustice(rsvps, (done, lowestWaitlist, unjustYess) => {
-            done ? adjustNext(true) :
-            swapRsvps(event_id, lowestWaitlist, unjustYess, adjustNext);
-          });
-        });
-      }
-      err ? exit(err) :
-      async.forever(adjust, saveDemerits);
-    });
-  });
+  loadLastEvent();
+  Promise.all([prevEventAttendance(), nextEventIds()])
+  .then(adjust)
+  .then(saveLastEvent)
+  .catch(errorExit);
 }
 
 adjudicate();
