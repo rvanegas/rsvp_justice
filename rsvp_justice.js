@@ -54,7 +54,7 @@ function prevEventAttendance() {
   return prevEventId()
   .then(event_id => {
     if (last_event_id == event_id) {
-      errorExit('already done.');
+      errorExit('already done');
     } else {
       last_event_id = event_id;
       return attendance(event_id);
@@ -84,40 +84,54 @@ function setRsvpResponse(event_id, member_id, response, next) {
   .end(next);
 }
 
-function adjust([noshowRsvps, events]) {
-  function notDone() {
-    return noshowRsvps.length != 0 && events.length != 0;
+function setBumps(bumps) {
+  console.log('bumps:\n', bumps);
+  if (process.argv[2] != 'run')
+    return;
+  function setBump({event_id, member_id}, next) {
+    setRsvpResponse(event_id, member_id, 'no', () =>
+      setRsvpResponse(event_id, member_id, 'waitlist', next));
   }
-  function bump(next) {
-    const event_id = events.shift().id;
-    rsvpsByEventId(event_id, (err, eventRsvps) => {
-      if (err) {
-        next(err);
-      } else {
-        const noshowRsvpIds = _.map(noshowRsvps, 'member.id');
-        const eventRsvpIds = _.map(eventRsvps, 'member.member_id');
-        const bumpableIds = _.intersection(noshowRsvpIds, eventRsvpIds);
-        async.eachSeries(bumpableIds, (id, nextBump) => {
-          _.remove(noshowRsvps, rsvp => rsvp.member.id = id);
-          setRsvpResponse(event_id, id, 'no', () =>
-            setRsvpResponse(event_id, id, 'waitlist', nextBump));
-        });
-        next();
-      }
-    });
-  }
-
   return new Promise((resolve, reject) => {
-    async.whilst(notDone, bump, (err, res) => err ? reject(err) : resolve(res));
+    async.eachSeries(bumps, setBump, (err, res) => err ? reject(err) : resolve(res));
   });
 }
 
-function adjudicate() {
+function adjust([noshowRsvps, events]) {
+  return new Promise((resolve, reject) => {
+    function adjustEvent(noshowRsvps, events, bumps = []) {
+      if (noshowRsvps.length == 0 || events.length == 0)
+        return resolve(bumps);
+      const event = events[0];
+      const event_id = event.id;
+      rsvpsByEventId(event_id, (err, eventRsvps) => {
+        if (err)
+          return reject('rsvpsByEventId failed');
+        const noshowRsvpIds = _.map(noshowRsvps, 'member.id');
+        const eventRsvpIds = _.map(eventRsvps, 'member.member_id');
+        const bumpableIds = _.intersection(noshowRsvpIds, eventRsvpIds);
+        const newBumps = bumpableIds.map(member_id => {
+          const event_name = event.name;
+          const member_name = _.find(noshowRsvps, ['member.id', member_id]).member.name;
+          return {event_id, event_name, member_id, member_name};
+        });
+        const nextNoshowRsvps = _.reject(noshowRsvps, rsvp => _.includes(bumpableIds, rsvp.member.id));
+        const nextEvents = _.tail(events);
+        const nextBumps = _.concat(bumps, newBumps);
+        adjustEvent(nextNoshowRsvps, nextEvents, nextBumps);
+      });
+    }
+    adjustEvent(noshowRsvps, events);
+  });
+}
+
+function main() {
   loadLastEvent();
   Promise.all([prevEventAttendance(), nextEventIds()])
   .then(adjust)
+  .then(setBumps)
   .then(saveLastEvent)
   .catch(errorExit);
 }
 
-adjudicate();
+main();
