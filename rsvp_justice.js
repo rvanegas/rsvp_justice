@@ -65,7 +65,7 @@ function prevEventAttendance() {
 function rsvpsByEventId(event_id, next) {
   function trial(trialNext) {
     request.get(endpoint + '/2/rsvps')
-    .query({event_id, key})
+    .query({event_id, key, rsvp: 'yes'})
     .end((err, res) => {
       if (err || !res.ok || !res.body.results) {
         trialNext('too many trials');
