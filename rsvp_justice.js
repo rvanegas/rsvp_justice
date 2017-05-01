@@ -7,15 +7,18 @@ require('dotenv').config();
 const urlname = process.env.MEETUP_URLNAME;
 const key = process.env.MEETUP_KEY;
 const endpoint = 'https://api.meetup.com';
-const lastEventFile = 'last_event';
-var last_event_id;
 
-function loadLastEvent() {
-  last_event_id = fs.readFileSync(lastEventFile, 'utf8').trim();
+const fridayRsvpsFile = 'friday_rsvps.json';
+var fridayRsvps;
+
+var subcommand;
+
+function loadfridayRsvps() {
+  fridayRsvps = JSON.parse(fs.readFileSync(fridayRsvpsFile, 'utf8'));
 }
 
-function saveLastEvent() {
-  fs.writeFileSync(lastEventFile, last_event_id + '\n');
+function savefridayRsvps() {
+  fs.writeFileSync(fridayRsvpsFile, JSON.stringify(fridayRsvps));
 }
 
 function mainEvents(events) {
@@ -53,10 +56,10 @@ function errorExit(err) {
 function prevEventAttendance() {
   return prevEventId()
   .then(event_id => {
-    if (last_event_id == event_id) {
+    if (fridayRsvps.lastEventId == event_id) {
       errorExit('already done');
     } else {
-      last_event_id = event_id;
+      fridayRsvps.lastEventId = event_id;
       return attendance(event_id);
     }
   });
@@ -85,9 +88,6 @@ function setRsvpResponse(event_id, member_id, response, next) {
 }
 
 function setBumps(bumps) {
-  console.log('bumps:\n', bumps);
-  if (process.argv[2] != 'run')
-    return;
   function setBump({event_id, member_id}, next) {
     setRsvpResponse(event_id, member_id, 'no', () =>
       setRsvpResponse(event_id, member_id, 'waitlist', next));
@@ -100,8 +100,10 @@ function setBumps(bumps) {
 function adjust([noshowRsvps, events]) {
   return new Promise((resolve, reject) => {
     function adjustEvent(noshowRsvps, events, bumps = []) {
-      if (noshowRsvps.length == 0 || events.length == 0)
+      if (noshowRsvps.length == 0 || events.length == 0) {
+        console.log('bumps:\n', bumps);
         return resolve(bumps);
+      }
       const event = events[0];
       const event_id = event.id;
       rsvpsByEventId(event_id, (err, eventRsvps) => {
@@ -125,13 +127,31 @@ function adjust([noshowRsvps, events]) {
   });
 }
 
+function getSubcommand() {
+  const subcommands = ['run', 'dryrun', 'save'];
+  subcommand = process.argv[2];
+  if (!_.includes(subcommands, subcommand)) {
+    errorExit('invalid subcommand');
+  }
+}
+
 function main() {
-  loadLastEvent();
-  Promise.all([prevEventAttendance(), nextEventIds()])
-  .then(adjust)
-  .then(setBumps)
-  .then(saveLastEvent)
-  .catch(errorExit);
+  getSubcommand();
+  if (subcommand == 'save') {
+    // get yesses for next event
+    // .then(savefridayRsvps)
+    // save yesses
+  } else if (subcommand == 'run' || subcommand == 'dryrun') {
+    loadfridayRsvps();
+    const bumps = Promise.all([prevEventAttendance(), nextEventIds()])
+    .then(adjust)
+    .catch(errorExit);
+
+    if (subcommand == 'run') {
+      bumps.then(setBumps)
+      .catch(errorExit);
+    }
+  }
 }
 
 main();
