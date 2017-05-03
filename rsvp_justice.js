@@ -12,7 +12,7 @@ function promisify(fn) {
   return function() {
     return new Promise((resolve, reject) => {
       const callback = (err, res) => err ? reject(err) : resolve(res);
-      const newArgs = _.concat([...arguments], callback)
+      const newArgs = _.concat([...arguments], callback);
       fn.apply(this, newArgs);
     });
   };
@@ -152,6 +152,12 @@ function adjust([attendedRsvps, events]) {
   return promiseAdjustEvent(noshowRsvpIds, events);
 }
 
+function setFridayRsvps(eventRsvps) {
+  const {event_id, rsvps} = eventRsvps;
+  fridayRsvps.members = _.map(rsvps, 'member');
+  fridayRsvps.event_id = event_id;
+}
+
 function getSubcommand() {
   const subcommands = ['run', 'dryrun', 'save'];
   return process.argv[2];
@@ -166,11 +172,7 @@ function main() {
   if (subcommand == 'save') {
     nextEventId()
     .then(rsvpsByEventId)
-    .then(eventRsvps => {
-      const {event_id, rsvps} = eventRsvps;
-      fridayRsvps.members = _.map(rsvps, 'member');
-      fridayRsvps.event_id = event_id;
-    })
+    .then(setFridayRsvps)
     .then(savefridayRsvps)
     .catch(errorExit);
   } else if (subcommand == 'run' || subcommand == 'dryrun') {
