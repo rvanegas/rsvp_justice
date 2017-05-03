@@ -65,10 +65,10 @@ function prevEventAttendance() {
   });
 }
 
-function rsvpsByEventId(event_id, next) {
+function rsvpsByEventId(event_id) {
   function trial(trialNext) {
     request.get(endpoint + '/2/rsvps')
-    .query({event_id, key, rsvp: 'yes'})
+    .query({key, event_id, rsvp: 'yes'})
     .end((err, res) => {
       if (err || !res.ok || !res.body.results) {
         trialNext('too many trials');
@@ -77,7 +77,9 @@ function rsvpsByEventId(event_id, next) {
       }
     });
   }
-  async.retry(trial, next);
+  return new Promise((resolve, reject) => {
+    async.retry(trial, (err, res) => err ? reject(err) : resolve(res));
+  });
 }
 
 function setRsvpResponse(event_id, member_id, response, next) {
@@ -106,9 +108,8 @@ function adjust([noshowRsvps, events]) {
       }
       const event = events[0];
       const event_id = event.id;
-      rsvpsByEventId(event_id, (err, eventRsvps) => {
-        if (err)
-          return reject('rsvpsByEventId failed');
+      rsvpsByEventId(event_id)
+      .then(eventRsvps => {
         const noshowRsvpIds = _.map(noshowRsvps, 'member.id');
         const eventRsvpIds = _.map(eventRsvps, 'member.member_id');
         const bumpableIds = _.intersection(noshowRsvpIds, eventRsvpIds);
@@ -121,7 +122,8 @@ function adjust([noshowRsvps, events]) {
         const nextEvents = _.tail(events);
         const nextBumps = _.concat(bumps, newBumps);
         adjustEvent(nextNoshowRsvps, nextEvents, nextBumps);
-      });
+      })
+      .catch(err => 'rsvpsByEventId failed');
     }
     adjustEvent(noshowRsvps, events);
   });
@@ -137,16 +139,17 @@ function getSubcommand() {
 
 function main() {
   getSubcommand();
+  loadfridayRsvps();
   if (subcommand == 'save') {
+    prevEventId()
+    .then();
     // get yesses for next event
     // .then(savefridayRsvps)
     // save yesses
   } else if (subcommand == 'run' || subcommand == 'dryrun') {
-    loadfridayRsvps();
     const bumps = Promise.all([prevEventAttendance(), nextEventIds()])
     .then(adjust)
     .catch(errorExit);
-
     if (subcommand == 'run') {
       bumps.then(setBumps)
       .catch(errorExit);
