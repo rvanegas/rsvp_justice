@@ -18,7 +18,7 @@ function loadfridayRsvps() {
 }
 
 function savefridayRsvps() {
-  fs.writeFileSync(fridayRsvpsFile, JSON.stringify(fridayRsvps));
+  fs.writeFileSync(fridayRsvpsFile, JSON.stringify(fridayRsvps, null, 2) + '\n');
 }
 
 function mainEvents(events) {
@@ -40,6 +40,12 @@ function nextEventIds() {
   return request.get(endpoint + '/' + urlname + '/events')
   .query({status: 'upcoming', page: 20})
   .then(res => mainEvents(res.body));
+}
+
+function nextEventId() {
+  return request.get(endpoint + '/' + urlname + '/events')
+  .query({status: 'upcoming', page: 10})
+  .then(res => firstEventId(res.body));
 }
 
 function attendance(event_id) {
@@ -73,7 +79,8 @@ function rsvpsByEventId(event_id) {
       if (err || !res.ok || !res.body.results) {
         trialNext('too many trials');
       } else {
-        trialNext(null, res.body.results);
+        const rsvps = res.body.results;
+        trialNext(null, {event_id, rsvps});
       }
     });
   }
@@ -99,6 +106,7 @@ function setBumps(bumps) {
   });
 }
 
+// break up into two functions
 function adjust([noshowRsvps, events]) {
   return new Promise((resolve, reject) => {
     function adjustEvent(noshowRsvps, events, bumps = []) {
@@ -110,8 +118,9 @@ function adjust([noshowRsvps, events]) {
       const event_id = event.id;
       rsvpsByEventId(event_id)
       .then(eventRsvps => {
+        const {event_id, rsvps} = eventRsvps;
         const noshowRsvpIds = _.map(noshowRsvps, 'member.id');
-        const eventRsvpIds = _.map(eventRsvps, 'member.member_id');
+        const eventRsvpIds = _.map(rsvps, 'member.member_id');
         const bumpableIds = _.intersection(noshowRsvpIds, eventRsvpIds);
         const newBumps = bumpableIds.map(member_id => {
           const event_name = event.name;
@@ -141,11 +150,15 @@ function main() {
   getSubcommand();
   loadfridayRsvps();
   if (subcommand == 'save') {
-    prevEventId()
-    .then();
-    // get yesses for next event
-    // .then(savefridayRsvps)
-    // save yesses
+    nextEventId()
+    .then(rsvpsByEventId)
+    .then(eventRsvps => {
+      const {event_id, rsvps} = eventRsvps;
+      fridayRsvps.members = _.map(rsvps, 'member');
+      fridayRsvps.event_id = event_id;
+    })
+    .then(savefridayRsvps)
+    .catch(errorExit);
   } else if (subcommand == 'run' || subcommand == 'dryrun') {
     const bumps = Promise.all([prevEventAttendance(), nextEventIds()])
     .then(adjust)
