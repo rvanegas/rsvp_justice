@@ -8,6 +8,19 @@ const urlname = process.env.MEETUP_URLNAME;
 const key = process.env.MEETUP_KEY;
 const endpoint = 'https://api.meetup.com';
 
+function promisify(fn) {
+  return function() {
+    return new Promise((resolve, reject) => {
+      const callback = (err, res) => err ? reject(err) : resolve(res);
+      const newArgs = _.concat([...arguments], callback)
+      fn.apply(this, newArgs);
+    });
+  };
+}
+
+const promiseAsyncRetry = promisify(async.retry);
+const promiseAsyncEachSeries = promisify(async.eachSeries);
+
 const fridayRsvpsFile = 'friday_rsvps.json';
 var fridayRsvps;
 
@@ -70,21 +83,19 @@ function prevEventAttendance() {
 }
 
 function rsvpsByEventId(event_id) {
-  function trial(trialNext) {
+  function trial(next) {
     request.get(endpoint + '/2/rsvps')
     .query({key, event_id, rsvp: 'yes'})
     .end((err, res) => {
       if (err || !res.ok || !res.body.results) {
-        trialNext('too many trials');
+        next('too many trials');
       } else {
         const rsvps = res.body.results;
-        trialNext(null, {event_id, rsvps});
+        next(null, {event_id, rsvps});
       }
     });
   }
-  return new Promise((resolve, reject) => {
-    async.retry(trial, (err, res) => err ? reject(err) : resolve(res));
-  });
+  return promiseAsyncRetry(trial);
 }
 
 function setRsvpResponse(event_id, member_id, response, next) {
@@ -99,12 +110,9 @@ function setBumps(bumps) {
     setRsvpResponse(event_id, member_id, 'no', () =>
       setRsvpResponse(event_id, member_id, 'waitlist', next));
   }
-  return new Promise((resolve, reject) => {
-    async.eachSeries(bumps, setBump, (err, res) => err ? reject(err) : resolve(res));
-  });
+  return promiseAsyncEachSeries(bumps, setBump);
 }
 
-// break up into two functions
 function adjust([attendedRsvps, events]) {
   const noshowRsvpIds = _.difference(
     _.map(fridayRsvps.members, 'member_id'),
