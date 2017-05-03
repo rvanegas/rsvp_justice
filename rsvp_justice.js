@@ -113,38 +113,43 @@ function setBumps(bumps) {
   return promiseAsyncEachSeries(bumps, setBump);
 }
 
+function adjustEventStep(noshowRsvpIds, events, bumps, next) {
+  if (noshowRsvpIds.length == 0 || events.length == 0) {
+    console.log('bumps:\n', bumps);
+    return next(null, bumps);
+  }
+  const event = events[0];
+  const event_id = event.id;
+  rsvpsByEventId(event_id)
+  .then(eventRsvps => {
+    const {event_id, rsvps} = eventRsvps;
+    const eventRsvpIds = _.map(rsvps, 'member.member_id');
+    const bumpableIds = _.intersection(noshowRsvpIds, eventRsvpIds);
+    const newBumps = bumpableIds.map(member_id => {
+      const event_name = event.name;
+      const member_name = _.find(rsvps, ['member.member_id', member_id]).member.name;
+      return {event_id, event_name, member_id, member_name};
+    });
+    const nextNoshowRsvpIds = _.difference(noshowRsvpIds, bumpableIds);
+    const nextEvents = _.tail(events);
+    const nextBumps = _.concat(bumps, newBumps);
+    adjustEventStep(nextNoshowRsvpIds, nextEvents, nextBumps, next);
+  })
+  .catch(err => 'rsvpsByEventId failed');
+}
+
+function adjustEvent(noshowRsvpIds, events, next) {
+  adjustEventStep(noshowRsvpIds, events, [], next);
+}
+
+const promiseAdjustEvent = promisify(adjustEvent);
+
 function adjust([attendedRsvps, events]) {
   const noshowRsvpIds = _.difference(
     _.map(fridayRsvps.members, 'member_id'),
     _.map(attendedRsvps, 'member.id')
   );
-  return new Promise((resolve, reject) => {
-    function adjustEvent(noshowRsvpIds, events, bumps = []) {
-      if (noshowRsvpIds.length == 0 || events.length == 0) {
-        console.log('bumps:\n', bumps);
-        return resolve(bumps);
-      }
-      const event = events[0];
-      const event_id = event.id;
-      rsvpsByEventId(event_id)
-      .then(eventRsvps => {
-        const {event_id, rsvps} = eventRsvps;
-        const eventRsvpIds = _.map(rsvps, 'member.member_id');
-        const bumpableIds = _.intersection(noshowRsvpIds, eventRsvpIds);
-        const newBumps = bumpableIds.map(member_id => {
-          const event_name = event.name;
-          const member_name = _.find(rsvps, ['member.member_id', member_id]).member.name;
-          return {event_id, event_name, member_id, member_name};
-        });
-        const nextNoshowRsvpIds = _.difference(noshowRsvpIds, bumpableIds);
-        const nextEvents = _.tail(events);
-        const nextBumps = _.concat(bumps, newBumps);
-        adjustEvent(nextNoshowRsvpIds, nextEvents, nextBumps);
-      })
-      .catch(err => 'rsvpsByEventId failed');
-    }
-    adjustEvent(noshowRsvpIds, events);
-  });
+  return promiseAdjustEvent(noshowRsvpIds, events);
 }
 
 function getSubcommand() {
