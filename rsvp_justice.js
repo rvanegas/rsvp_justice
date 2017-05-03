@@ -48,7 +48,7 @@ function nextEventId() {
 
 function attendance(event_id) {
   return request.get(endpoint + '/' + urlname + '/events/' + event_id + '/attendance')
-  .query({key, filter: 'noshow'})
+  .query({key})
   .then(res => res.body);
 }
 
@@ -105,10 +105,14 @@ function setBumps(bumps) {
 }
 
 // break up into two functions
-function adjust([noshowRsvps, events]) {
+function adjust([attendedRsvps, events]) {
+  const noshowRsvpIds = _.difference(
+    _.map(fridayRsvps.members, 'member_id'),
+    _.map(attendedRsvps, 'member.id')
+  );
   return new Promise((resolve, reject) => {
-    function adjustEvent(noshowRsvps, events, bumps = []) {
-      if (noshowRsvps.length == 0 || events.length == 0) {
+    function adjustEvent(noshowRsvpIds, events, bumps = []) {
+      if (noshowRsvpIds.length == 0 || events.length == 0) {
         console.log('bumps:\n', bumps);
         return resolve(bumps);
       }
@@ -117,22 +121,21 @@ function adjust([noshowRsvps, events]) {
       rsvpsByEventId(event_id)
       .then(eventRsvps => {
         const {event_id, rsvps} = eventRsvps;
-        const noshowRsvpIds = _.map(noshowRsvps, 'member.id');
         const eventRsvpIds = _.map(rsvps, 'member.member_id');
         const bumpableIds = _.intersection(noshowRsvpIds, eventRsvpIds);
         const newBumps = bumpableIds.map(member_id => {
           const event_name = event.name;
-          const member_name = _.find(noshowRsvps, ['member.id', member_id]).member.name;
+          const member_name = _.find(rsvps, ['member.member_id', member_id]).member.name;
           return {event_id, event_name, member_id, member_name};
         });
-        const nextNoshowRsvps = _.reject(noshowRsvps, rsvp => _.includes(bumpableIds, rsvp.member.id));
+        const nextNoshowRsvpIds = _.difference(noshowRsvpIds, bumpableIds);
         const nextEvents = _.tail(events);
         const nextBumps = _.concat(bumps, newBumps);
-        adjustEvent(nextNoshowRsvps, nextEvents, nextBumps);
+        adjustEvent(nextNoshowRsvpIds, nextEvents, nextBumps);
       })
       .catch(err => 'rsvpsByEventId failed');
     }
-    adjustEvent(noshowRsvps, events);
+    adjustEvent(noshowRsvpIds, events);
   });
 }
 
