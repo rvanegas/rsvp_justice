@@ -11,8 +11,6 @@ const endpoint = 'https://api.meetup.com';
 const fridayRsvpsFile = 'friday_rsvps.json';
 var fridayRsvps;
 
-var subcommand;
-
 function loadfridayRsvps() {
   fridayRsvps = JSON.parse(fs.readFileSync(fridayRsvpsFile, 'utf8'));
 }
@@ -140,14 +138,14 @@ function adjust([noshowRsvps, events]) {
 
 function getSubcommand() {
   const subcommands = ['run', 'dryrun', 'save'];
-  subcommand = process.argv[2];
+  return process.argv[2];
   if (!_.includes(subcommands, subcommand)) {
     errorExit('invalid subcommand');
   }
 }
 
 function main() {
-  getSubcommand();
+  const subcommand = getSubcommand();
   loadfridayRsvps();
   if (subcommand == 'save') {
     nextEventId()
