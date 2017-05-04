@@ -21,15 +21,15 @@ function promisify(fn) {
 const promiseAsyncRetry = promisify(async.retry);
 const promiseAsyncEachSeries = promisify(async.eachSeries);
 
-const fridayRsvpsFile = 'friday_rsvps.json';
-var fridayRsvps;
+const savedRsvpsFile = 'saved_rsvps.json';
+var savedRsvps;
 
-function loadfridayRsvps() {
-  fridayRsvps = JSON.parse(fs.readFileSync(fridayRsvpsFile, 'utf8'));
+function readSavedRsvps() {
+  savedRsvps = JSON.parse(fs.readFileSync(savedRsvpsFile, 'utf8'));
 }
 
-function savefridayRsvps() {
-  fs.writeFileSync(fridayRsvpsFile, JSON.stringify(fridayRsvps, null, 2) + '\n');
+function writeSavedRsvps() {
+  fs.writeFileSync(savedRsvpsFile, JSON.stringify(savedRsvps, null, 2) + '\n');
 }
 
 function mainEvents(events) {
@@ -73,10 +73,10 @@ function errorExit(err) {
 function prevEventAttendance() {
   return prevEventId()
   .then(event_id => {
-    if (fridayRsvps.lastEventId == event_id) {
+    if (savedRsvps.lastEventId == event_id) {
       errorExit('already done');
     } else {
-      fridayRsvps.lastEventId = event_id;
+      savedRsvps.lastEventId = event_id;
       return attendance(event_id);
     }
   });
@@ -146,16 +146,16 @@ const promiseAdjustEvent = promisify(adjustEvent);
 
 function adjust([attendedRsvps, events]) {
   const noshowRsvpIds = _.difference(
-    _.map(fridayRsvps.members, 'member_id'),
+    _.map(savedRsvps.members, 'member_id'),
     _.map(attendedRsvps, 'member.id')
   );
   return promiseAdjustEvent(noshowRsvpIds, events);
 }
 
-function setFridayRsvps(eventRsvps) {
+function setSavedRsvps(eventRsvps) {
   const {event_id, rsvps} = eventRsvps;
-  fridayRsvps.members = _.map(rsvps, 'member');
-  fridayRsvps.event_id = event_id;
+  savedRsvps.members = _.map(rsvps, 'member');
+  savedRsvps.event_id = event_id;
 }
 
 function getSubcommand() {
@@ -168,15 +168,18 @@ function getSubcommand() {
 
 function main() {
   const subcommand = getSubcommand();
-  loadfridayRsvps();
+  readSavedRsvps();
   if (subcommand == 'save') {
     nextEventId()
     .then(rsvpsByEventId)
-    .then(setFridayRsvps)
-    .then(savefridayRsvps)
+    .then(setSavedRsvps)
+    .then(writeSavedRsvps)
     .catch(errorExit);
   } else if (subcommand == 'run' || subcommand == 'dryrun') {
-    const bumps = Promise.all([prevEventAttendance(), nextEventIds()])
+    const bumps = Promise.all([
+      prevEventAttendance(),
+      nextEventIds()
+    ])
     .then(adjust)
     .catch(errorExit);
     if (subcommand == 'run') {
