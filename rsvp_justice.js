@@ -145,8 +145,9 @@ function adjustEvent(noshowRsvpIds, events, next) {
 const promiseAdjustEvent = promisify(adjustEvent);
 
 function adjust([attendedRsvps, events]) {
+  const members = _.last(savedRsvps.events).members;
   const noshowRsvpIds = _.difference(
-    _.map(savedRsvps.members, 'member_id'),
+    _.map(members, 'member_id'),
     _.map(attendedRsvps, 'member.id')
   );
   return promiseAdjustEvent(noshowRsvpIds, events);
@@ -154,8 +155,15 @@ function adjust([attendedRsvps, events]) {
 
 function setSavedRsvps(eventRsvps) {
   const {event_id, rsvps} = eventRsvps;
-  savedRsvps.members = _.map(rsvps, 'member');
-  savedRsvps.event_id = event_id;
+  const name = rsvps[0].event.name;
+  const now = new Date();
+  const date = now.toLocaleDateString();
+  const time = now.toLocaleTimeString();
+  const date_time = date + ' ' + time;
+  const members = _.map(rsvps, 'member');
+  const event = {event_id, name, date_time, members};
+  savedRsvps.events = savedRsvps.events || [];
+  savedRsvps.events.push(event);
 }
 
 function getSubcommand() {
